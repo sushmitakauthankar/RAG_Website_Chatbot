@@ -87,7 +87,6 @@ if prompt := st.chat_input("Ask a question about the content..."):
 
         with st.chat_message("assistant"):
             response_placeholder = st.empty()
-            # Show the spinner while waiting for response
             with st.spinner("Generating..."):
                 full_response = ""
                 for token in ask_question_streaming(

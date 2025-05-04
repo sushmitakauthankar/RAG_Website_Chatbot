@@ -99,6 +99,6 @@ if prompt := st.chat_input("Ask a question about the content..."):
                 ):
                     full_response += token
                     response_placeholder.markdown(full_response + "▌")
-                    
+
             response_placeholder.markdown(full_response)
             st.session_state.messages.append({"role": "assistant", "content": full_response})

@@ -1,4 +1,3 @@
-# --- backend.py ---
 
 import nltk
 import os
@@ -12,16 +11,12 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 import json
 from collections import deque
-import fitz  # PyMuPDF
+import fitz
 
-# Download NLTK tokenizer
 nltk.download("punkt")
 from nltk.tokenize import sent_tokenize
-print("✅ Punkt tokenizer downloaded.")
 
-# Load sentence embedding model
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
 
 def scrape_website(url, depth=1, max_pages=10):
     visited = set()
@@ -76,13 +71,12 @@ def load_content(source, depth=2):
             text = "\n".join([page.get_text() for page in doc])
         chunks = smart_chunk_text(text)
         if not chunks:
-            raise ValueError("⚠️ PDF loaded but no usable text content was found.")
+            raise ValueError("⚠ PDF loaded but no usable text content was found.")
         return chunks
     else:
-        # treat as URL
         docs = scrape_website(source, depth=depth)
         if not docs:
-            raise ValueError("⚠️ Website loaded but no usable text content was found.")
+            raise ValueError("⚠ Website loaded but no usable text content was found.")
         text_blocks = [text for _, text in docs]
         all_text = "\n".join(text_blocks)
         return smart_chunk_text(all_text)
@@ -98,7 +92,7 @@ def build_faiss_index(chunks):
 
 def ask_question_streaming(question, index, chunks, k=5, question_type="Open-ended"):
     if index is None or not chunks:
-        yield "⚠️ Please load a website first."
+        yield "⚠ Please load a website first."
         return
 
     question_embedding = embedding_model.encode([question])
@@ -147,7 +141,7 @@ Instruction:
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "llama3",  # or "mistral"
+                "model": "llama3",
                 "prompt": prompt.strip(),
                 "stream": True
             },
@@ -161,4 +155,4 @@ Instruction:
                 if token:
                     yield token
     except Exception as e:
-        yield f"❌ Failed to connect to the model: {e}"
+        yield f"❌ Failed to connect to the model{e}"

@@ -1,0 +1,9 @@
+streamlit
+sentence-transformers
+nltk
+numpy
+scikit-learn
+requests
+beautifulsoup4
+faiss-cpu
+PyMuPDF

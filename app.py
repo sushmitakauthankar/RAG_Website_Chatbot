@@ -1,6 +1,6 @@
 import streamlit as st
 import fitz  # PyMuPDF
-from bckend import load_content, build_faiss_index, ask_question_streaming, smart_chunk_text
+from backend import load_content, build_faiss_index, ask_question_streaming, smart_chunk_text
 
 st.set_page_config(page_title="WebBrain – Your Website/PDF Answer Bot", layout="wide")
 

@@ -1,48 +1,59 @@
-# backend.py
+# --- backend.py ---
 
 import nltk
 import os
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+import re
 import requests
 import numpy as np
 import faiss
-import re
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
-from transformers import pipeline, AutoModelForSeq2SeqLM, AutoTokenizer
+import json
+from collections import deque
+import fitz  # PyMuPDF
 
+# Download NLTK tokenizer
 nltk.download("punkt")
 from nltk.tokenize import sent_tokenize
-print("\u2705 Punkt successfully reloaded.")
+print("✅ Punkt tokenizer downloaded.")
 
-# Preload embedding model
+# Load sentence embedding model
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Preload QA model from local cache (no repeated downloads)
-MODEL_NAME = "google/flan-t5-large"
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
-qa_model = pipeline("text2text-generation", model=model, tokenizer=tokenizer)
 
-def scrape_website(url, depth=1, visited=None):
-    if visited is None:
-        visited = set()
-    if url in visited or depth == 0:
-        return []
+def scrape_website(url, depth=1, max_pages=10):
+    visited = set()
+    queue = deque([(url, 0)])
+    result = []
 
-    visited.add(url)
-    try:
-        res = requests.get(url, timeout=5)
-        res.raise_for_status()  # Raises error for bad responses (404, 500, etc.)
-        soup = BeautifulSoup(res.text, "html.parser")
-        text = soup.get_text(separator=' ', strip=True)
-        links = [urljoin(url, a['href']) for a in soup.find_all('a', href=True)]
-        result = [(url, text)]
-        for link in links[:5]:
-            result += scrape_website(link, depth - 1, visited)
-        return result
-    except requests.exceptions.RequestException as e:
-        raise ValueError(f"🚫 Failed to load the website: {e}")
+    while queue and len(visited) < max_pages:
+        current_url, current_depth = queue.popleft()
+
+        if current_url in visited or current_depth > depth:
+            continue
+
+        try:
+            res = requests.get(current_url, timeout=5)
+            res.raise_for_status()
+            soup = BeautifulSoup(res.text, "html.parser")
+            text = soup.get_text(separator=' ', strip=True)
+            result.append((current_url, text))
+            visited.add(current_url)
+
+            if current_depth < depth:
+                for a in soup.find_all("a", href=True):
+                    link = urljoin(current_url, a["href"])
+                    if link.startswith("http") and link not in visited:
+                        queue.append((link, current_depth + 1))
+
+        except requests.exceptions.RequestException:
+            continue  # skip broken links
+
+    if not result:
+        raise ValueError("❌ Failed to extract any content from the site.")
+    return result
 
 
 def smart_chunk_text(text, chunk_size=500):
@@ -59,19 +70,22 @@ def smart_chunk_text(text, chunk_size=500):
     return chunks
 
 
-def load_site(url, depth=2):
-    docs = scrape_website(url, depth)
-    if not docs:
-        raise ValueError("⚠️ No content found at the given URL.")
-
-    chunks = []
-    for _, text in docs:
-        chunks += smart_chunk_text(text)
-
-    if not chunks:
-        raise ValueError("⚠️ Website loaded but no usable text content was found.")
-
-    return chunks
+def load_content(source, depth=2):
+    if source.lower().endswith(".pdf"):
+        with fitz.open(source) as doc:
+            text = "\n".join([page.get_text() for page in doc])
+        chunks = smart_chunk_text(text)
+        if not chunks:
+            raise ValueError("⚠️ PDF loaded but no usable text content was found.")
+        return chunks
+    else:
+        # treat as URL
+        docs = scrape_website(source, depth=depth)
+        if not docs:
+            raise ValueError("⚠️ Website loaded but no usable text content was found.")
+        text_blocks = [text for _, text in docs]
+        all_text = "\n".join(text_blocks)
+        return smart_chunk_text(all_text)
 
 
 def build_faiss_index(chunks):
@@ -81,11 +95,12 @@ def build_faiss_index(chunks):
     index.add(np.array(embeddings).astype("float32"))
     return index, chunks
 
-from sklearn.metrics.pairwise import cosine_similarity
 
-from sklearn.metrics.pairwise import cosine_similarity
+def ask_question_streaming(question, index, chunks, k=5, question_type="Open-ended"):
+    if index is None or not chunks:
+        yield "⚠️ Please load a website first."
+        return
 
-def ask_question(question, index, chunks, k=5, question_type="Open-ended", show_chunks=True):
     question_embedding = embedding_model.encode([question])
     D, I = index.search(np.array(question_embedding).astype("float32"), k)
 
@@ -100,14 +115,11 @@ def ask_question(question, index, chunks, k=5, question_type="Open-ended", show_
     ]
 
     if not filtered_chunks:
-        return (
-            "❌ I couldn't find relevant information on the website to answer your question.",
-            []
-        )
+        yield "❌ I couldn't find relevant information on the website to answer your question."
+        return
 
     context = "\n\n".join(filtered_chunks)[:1500]
 
-    # Prompt instructions
     if question_type == "Close-ended (Yes/No)":
         instruction = "Answer with a clear Yes or No, followed by a short explanation."
     elif question_type == "Fact-based":
@@ -127,8 +139,26 @@ Context:
 Question:
 {question}
 
-Answer: {instruction}
+Instruction:
+{instruction}
 """
 
-    result = qa_model(prompt.strip(), max_length=500, do_sample=False)[0]['generated_text']
-    return result.strip(), filtered_chunks
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "llama3",  # or "mistral"
+                "prompt": prompt.strip(),
+                "stream": True
+            },
+            stream=True
+        )
+
+        for line in response.iter_lines():
+            if line:
+                data = json.loads(line.decode("utf-8"))
+                token = data.get("response", "")
+                if token:
+                    yield token
+    except Exception as e:
+        yield f"❌ Failed to connect to the model: {e}"

@@ -36,3 +36,12 @@ PyMuPDF
 Install it with:
 
 pip install -r requirements.txt
+
+
+screenshots:
+
+![image](https://github.com/user-attachments/assets/39f445b1-a55a-45bc-b302-0f6a59f30698)
+![image](https://github.com/user-attachments/assets/7d17022c-9a9d-449b-8358-aaff7e868ac3)
+![image](https://github.com/user-attachments/assets/fa58449a-7b04-484b-9a00-6eb598196e17)
+
+

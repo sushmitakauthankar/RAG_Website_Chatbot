@@ -1,3 +1,5 @@
+**RAG Website Chatbot**
+
 This project is a smart chatbot that can read web pages or PDF files and answer questions about them. It works by combining two powerful ideas:
 
 Retrieval – It finds the most important parts of the text that relate to your question.
